@@ -40,73 +40,59 @@ views:
   - title: Todo
     cards:
       - type: custom:todo-notifications-card
-        entity: todo.meine_liste        # Erforderlich
-        title: "Einkaufsliste"           # Optional (Default: "Todo Liste")
+        entity: todo.meine_liste                    # Erforderlich
+        title: "Einkaufsliste"                       # Optional
+        notify_services:                             # Optional - Notifications an diese Services
+          - mobile_app_iphone
+          - mobile_app_ipad
+        notify_added_title: "📋 Neue Aufgabe"       # Optional - Titel für "hinzugefügt"
+        notify_added_message: "{{ item }} hinzugefügt"
+        notify_completed_title: "✅ Erledigt"       # Optional - Titel für "erledigt"
+        notify_completed_message: "{{ item }} ist erledigt"
 ```
 
 ### UI Editor
 
-Dashboard → Card hinzufügen → Todo Notifications Card → Dropdowns ausfüllen
+1. Dashboard → Card hinzufügen → "Todo Notifications Card"
+2. **Todo Entity:** Wähle deine Todo-Liste (z.B. `todo.meine_liste`)
+3. **Titel:** Optional (default: "Todo Liste")
+4. **Benachrichtigungs-Services:** Komma-separiert:
+   - `mobile_app_iphone, mobile_app_ipad`
+   - Oder nur `mobile_app_handy` für ein Gerät
+   - Namen findest du in HA Settings → Devices & Services → Mobile App
 
 ## Funktionsweise
 
-### Events
+Die Card erkennt automatisch, wenn:
+- ➕ Ein neues Item hinzugefügt wird → sendet Notification mit `notify_added_title` + `notify_added_message`
+- ✅ Ein Item als "erledigt" markiert wird → sendet Notification mit `notify_completed_title` + `notify_completed_message`
 
-Die Card feuert zwei Custom Events:
+### Template-Variablen
 
-1. **`pq_todo_item_added`** — wenn ein neues Item hinzugefügt wird
-   - `event_data.item` — Titel des Items
-   - `event_data.entity_id` — Die Todo-Entity
+In den Nachrichten-Texten:
+- **`{{ item }}`** wird durch den Item-Text ersetzt
 
-2. **`pq_todo_item_completed`** — wenn ein Item auf `completed` gesetzt wird
-   - `event_data.item` — Titel des Items
-   - `event_data.entity_id` — Die Todo-Entity
-
-### Automation Beispiel
-
+Beispiel:
 ```yaml
-alias: "📋 Todo Benachrichtigungen"
-description: ""
-trigger:
-  - platform: event
-    event_type: pq_todo_item_added
-    id: hinzugefuegt
-  - platform: event
-    event_type: pq_todo_item_completed
-    id: erledigt
-condition: []
-action:
-  - choose:
-      - conditions:
-          - condition: trigger
-            id: hinzugefuegt
-        sequence:
-          - service: notify.mobile_app_dein_handy
-            data:
-              title: "📋 Neue Aufgabe"
-              message: "{{ trigger.event.data.item }} hinzugefügt"
-      - conditions:
-          - condition: trigger
-            id: erledigt
-        sequence:
-          - service: notify.mobile_app_dein_handy
-            data:
-              title: "✅ Erledigt!"
-              message: "{{ trigger.event.data.item }} ist erledigt"
-mode: parallel
+notify_added_message: "{{ item }} hinzugefügt"
+# → "Milch kaufen hinzugefügt"
+
+notify_completed_message: "✅ Du hast '{{ item }}' erledigt!"
+# → "✅ Du hast 'Milch kaufen' erledigt!"
 ```
 
-## Wichtig
+## ⚠️ Wichtig: Notifications nur wenn Card offen ist
 
-⚠️ **Event-Triggering nur wenn Card offen ist**
+Die Notifications werden von der **Card im Browser** versendet (Client-Side). Das bedeutet:
+- ✅ Notifications kommen wenn die Card auf einem Dashboard geladen ist
+- ❌ KEINE Notifications wenn kein Dashboard offen ist (auch nicht per Handy-App im Hintergrund)
 
-Die Card feuert Events über `set hass()` — das läuft nur, wenn die Card im Browser
-aktiv ist oder das Dashboard geöffnet ist. Für vollständige 24/7-Überwachung:
+**Für 24/7-Benachrichtigungen:** Erstelle zusätzlich eine HA-Automation mit
+einem Template Sensor, der die Todo-Änderungen verfolgt. Dies ist jedoch komplexer
+und braucht externe Tooling (z.B. AppDaemon, Node-RED).
 
-- Option A: Automation mit automatisierter Todo-Entity-Überwachung (z.B. via Template Sensors)
-- Option B: HA-interner State-Change Trigger auf die Todo-Entity (zeigt nur den Count, nicht den Item-Text)
-
-Die Card ist ideal für **Home-Gebrauch mit Manual-Überwachung**.
+**Die Card ist ideal für Echtzeit-Notifications im Home-Netzwerk** (wenn jemand
+gerade am Dashboard ist).
 
 ## Styling
 

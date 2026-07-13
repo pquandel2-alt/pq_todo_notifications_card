@@ -1,13 +1,21 @@
 // @ts-check
 // =====================================================================
-//  Todo Notifications Card v0.1.0
+//  Todo Notifications Card v0.2.0
 // =====================================================================
 
 class TodoNotificationsCard extends HTMLElement {
   constructor() {
     super();
     this.attachShadow({ mode: "open" });
-    this._config = { entity: "todo.todo", title: "Todo Liste" };
+    this._config = {
+      entity: "todo.todo",
+      title: "Todo Liste",
+      notify_added_title: "📋 Neue Aufgabe",
+      notify_added_message: "{{ item }} hinzugefügt",
+      notify_completed_title: "✅ Erledigt",
+      notify_completed_message: "{{ item }} ist erledigt",
+      notify_services: [],
+    };
     this._hass = null;
     this._items = [];
     this._previousItems = null;
@@ -21,6 +29,11 @@ class TodoNotificationsCard extends HTMLElement {
     this._config = {
       entity: "todo.todo",
       title: "Todo Liste",
+      notify_added_title: "📋 Neue Aufgabe",
+      notify_added_message: "{{ item }} hinzugefügt",
+      notify_completed_title: "✅ Erledigt",
+      notify_completed_message: "{{ item }} ist erledigt",
+      notify_services: [],
       ...config,
     };
   }
@@ -49,10 +62,11 @@ class TodoNotificationsCard extends HTMLElement {
         // Neu hinzugefügte Items
         for (const item of current) {
           if (item.status === "needs_action" && !prevUids.has(item.uid)) {
-            this._hass.callService("homeassistant", "fire_event", {
-              event_type: "pq_todo_item_added",
-              event_data: { item: item.summary, entity_id: this._config.entity },
-            });
+            await this._sendNotification(
+              this._config.notify_added_title,
+              this._config.notify_added_message,
+              item.summary
+            );
           }
         }
 
@@ -60,10 +74,11 @@ class TodoNotificationsCard extends HTMLElement {
         for (const item of current) {
           const prev = prevByUid.get(item.uid);
           if (prev && prev.status === "needs_action" && item.status === "completed") {
-            this._hass.callService("homeassistant", "fire_event", {
-              event_type: "pq_todo_item_completed",
-              event_data: { item: item.summary, entity_id: this._config.entity },
-            });
+            await this._sendNotification(
+              this._config.notify_completed_title,
+              this._config.notify_completed_message,
+              item.summary
+            );
           }
         }
       }
@@ -73,6 +88,26 @@ class TodoNotificationsCard extends HTMLElement {
       this._render();
     } catch (err) {
       console.error("Error fetching todo items:", err);
+    }
+  }
+
+  async _sendNotification(title, message, itemText) {
+    if (!this._config.notify_services || this._config.notify_services.length === 0) {
+      return;
+    }
+
+    const processedTitle = title.replace("{{ item }}", itemText);
+    const processedMessage = message.replace("{{ item }}", itemText);
+
+    for (const serviceId of this._config.notify_services) {
+      try {
+        await this._hass.callService("notify", serviceId, {
+          title: processedTitle,
+          message: processedMessage,
+        });
+      } catch (err) {
+        console.error(`Error sending notification to ${serviceId}:`, err);
+      }
     }
   }
 
@@ -518,6 +553,10 @@ class TodoNotificationsCardEditor extends HTMLElement {
       )
       .join("");
 
+    const notifyServicesStr = Array.isArray(this._config.notify_services)
+      ? this._config.notify_services.join(", ")
+      : "";
+
     this.shadowRoot.innerHTML = `
       <style>
         :host {
@@ -540,17 +579,22 @@ class TodoNotificationsCardEditor extends HTMLElement {
           text-transform: uppercase;
           opacity: 0.7;
         }
-        select, input {
+        select, input, textarea {
           padding: 8px;
           border: 1px solid #ccc;
           border-radius: 4px;
           font-size: 14px;
         }
+        .hint {
+          font-size: 11px;
+          opacity: 0.6;
+          margin-top: 4px;
+        }
       </style>
 
       <div class="editor">
         <div class="editor-row">
-          <label for="entity">Entity</label>
+          <label for="entity">Todo Entity</label>
           <select id="entity" @change="${(e) => this._emitChange("entity", e.target.value)}">
             <option value="">Wähle eine Todo-Entity</option>
             ${entityOptions}
@@ -567,15 +611,36 @@ class TodoNotificationsCardEditor extends HTMLElement {
             @change="${(e) => this._emitChange("title", e.target.value)}"
           >
         </div>
+
+        <div class="editor-row">
+          <label for="notify-services">Benachrichtigungs-Services</label>
+          <input
+            type="text"
+            id="notify-services"
+            placeholder="z.B. mobile_app_handy_1, mobile_app_handy_2"
+            value="${notifyServicesStr}"
+            @change="${(e) => this._handleNotifyServicesChange(e.target.value)}"
+          >
+          <div class="hint">Komma-separiert. Beispiel: mobile_app_iphone, mobile_app_ipad</div>
+        </div>
       </div>
     `;
 
     this._attachEventListeners();
   }
 
+  _handleNotifyServicesChange(value) {
+    const services = value
+      .split(",")
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0);
+    this._emitChange("notify_services", services);
+  }
+
   _attachEventListeners() {
     const select = this.shadowRoot.querySelector("select");
-    const input = this.shadowRoot.querySelector("input");
+    const titleInput = this.shadowRoot.querySelector("#title");
+    const notifyInput = this.shadowRoot.querySelector("#notify-services");
 
     if (select) {
       select.addEventListener("change", (e) => {
@@ -583,9 +648,15 @@ class TodoNotificationsCardEditor extends HTMLElement {
       });
     }
 
-    if (input) {
-      input.addEventListener("change", (e) => {
+    if (titleInput) {
+      titleInput.addEventListener("change", (e) => {
         this._emitChange("title", e.target.value);
+      });
+    }
+
+    if (notifyInput) {
+      notifyInput.addEventListener("change", (e) => {
+        this._handleNotifyServicesChange(e.target.value);
       });
     }
   }
