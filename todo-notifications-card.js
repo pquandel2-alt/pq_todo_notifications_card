@@ -24,6 +24,8 @@ class TodoNotificationsCard extends HTMLElement {
     this._editingUid = null;
     this._editValue = "";
     this._notifiedUids = new Set();
+    this._lastActionTime = 0;
+    this._actionDebounceMs = 1500;
   }
 
   setConfig(config) {
@@ -44,7 +46,10 @@ class TodoNotificationsCard extends HTMLElement {
     const entityState = hass.states[this._config.entity];
     if (entityState && entityState.state !== this._lastState) {
       this._lastState = entityState.state;
-      this._fetchAndCompare();
+      const timeSinceLastAction = Date.now() - this._lastActionTime;
+      if (timeSinceLastAction > this._actionDebounceMs) {
+        this._fetchAndCompare();
+      }
     }
   }
 
@@ -135,6 +140,7 @@ class TodoNotificationsCard extends HTMLElement {
     if (!this._inputValue.trim()) return;
 
     try {
+      this._lastActionTime = Date.now();
       await this._hass.callService("todo", "add_item", {
         entity_id: this._config.entity,
         item: this._inputValue.trim(),
@@ -149,6 +155,7 @@ class TodoNotificationsCard extends HTMLElement {
   async _toggleItem(uid, currentStatus) {
     const newStatus = currentStatus === "needs_action" ? "completed" : "needs_action";
     try {
+      this._lastActionTime = Date.now();
       await this._hass.callService("todo", "update_item", {
         entity_id: this._config.entity,
         item: uid,
@@ -162,6 +169,7 @@ class TodoNotificationsCard extends HTMLElement {
 
   async _deleteItem(uid) {
     try {
+      this._lastActionTime = Date.now();
       await this._hass.callService("todo", "remove_item", {
         entity_id: this._config.entity,
         item: uid,
@@ -174,6 +182,7 @@ class TodoNotificationsCard extends HTMLElement {
 
   async _clearCompleted() {
     try {
+      this._lastActionTime = Date.now();
       await this._hass.callService("todo", "remove_completed_items", {
         entity_id: this._config.entity,
       });
