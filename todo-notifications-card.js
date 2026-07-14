@@ -23,6 +23,7 @@ class TodoNotificationsCard extends HTMLElement {
     this._inputValue = "";
     this._editingUid = null;
     this._editValue = "";
+    this._notifiedUids = new Set();
   }
 
   setConfig(config) {
@@ -61,24 +62,43 @@ class TodoNotificationsCard extends HTMLElement {
 
         // Neu hinzugefügte Items
         for (const item of current) {
-          if (item.status === "needs_action" && !prevUids.has(item.uid)) {
+          if (
+            item.status === "needs_action" &&
+            !prevUids.has(item.uid) &&
+            !this._notifiedUids.has(item.uid)
+          ) {
             await this._sendNotification(
               this._config.notify_added_title,
               this._config.notify_added_message,
               item.summary
             );
+            this._notifiedUids.add(item.uid);
           }
         }
 
         // Soeben erledigte Items (needs_action → completed)
         for (const item of current) {
           const prev = prevByUid.get(item.uid);
-          if (prev && prev.status === "needs_action" && item.status === "completed") {
+          if (
+            prev &&
+            prev.status === "needs_action" &&
+            item.status === "completed" &&
+            !this._notifiedUids.has(`completed_${item.uid}`)
+          ) {
             await this._sendNotification(
               this._config.notify_completed_title,
               this._config.notify_completed_message,
               item.summary
             );
+            this._notifiedUids.add(`completed_${item.uid}`);
+          }
+        }
+
+        // Cleanup: gelöschte Items aus notifiedUids entfernen
+        for (const uid of Array.from(this._notifiedUids)) {
+          const stillExists = current.some((i) => i.uid === uid.replace("completed_", ""));
+          if (!stillExists) {
+            this._notifiedUids.delete(uid);
           }
         }
       }
